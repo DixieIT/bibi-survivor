@@ -1,0 +1,4 @@
+# Map settings, written by tools/make_town_map.py.
+# Tiles: "Tiny Town" by Kenney (www.kenney.nl), CC0.
+title Tiny Town
+spawn 504 412

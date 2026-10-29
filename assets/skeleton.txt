@@ -1,0 +1,16 @@
+# Skeleton sprite sheet layout (assets/skeleton.png), drawn by tools/make_skeleton.py.
+# Same format as player.txt. Faces RIGHT; mirrored when walking left.
+frame 16 20
+feet 0
+step right
+
+# <name>      <x> <y> <frames> <fps> <loop|once>
+walk          0   0   4        6     loop
+die           0   1   3        8     once
+archer_walk   0   2   4        6     loop
+archer_aim    0   3   1        1     loop
+archer_shoot  1   3   1        1     loop
+# Flying arrow, pointing right, centered in its cell.
+arrow         2   3   1        1     loop
+# Heart dropped by defeated skeletons.
+heart         3   3   1        1     loop

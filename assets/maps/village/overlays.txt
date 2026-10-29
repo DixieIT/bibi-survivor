@@ -1,0 +1,1 @@
+# <name> <baseline x0 y0 x1 y1> <bounds x y w h>, written by tools/make_collision.py

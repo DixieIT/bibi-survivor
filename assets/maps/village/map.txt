@@ -1,0 +1,8 @@
+# Map settings. map.png is the picture; collision.png (same size)
+# marks blocked areas: any non-transparent pixel can't be walked on.
+# Regenerate it with tools/make_collision.py, or paint it by hand.
+
+title Village
+
+# spawn <x> <y>: player start, in map pixels
+spawn 520 470
