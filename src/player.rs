@@ -1,6 +1,8 @@
 use crate::assets::{Assets, SpriteSheet};
 use crate::level::{Level, Swing};
+use crate::upgrades::{Upgrades, LIFE_STEAL, STAMINA_BONUS};
 use macroquad::prelude::*;
+use macroquad::rand::gen_range;
 
 const WALK_SPEED: f32 = 70.;
 const SPRINT_SPEED: f32 = 115.;
@@ -17,19 +19,20 @@ pub const MAX_HP: i32 = 10;
 const INVULNERABLE: f32 = 0.8;
 const KNOCKBACK: f32 = 150.;
 pub const MAX_STAMINA: f32 = 100.;
-/// Kills needed to reach slash level 2, 3 and 4.
-pub const SLASH_LEVELS: [u32; 3] = [8, 20, 40];
-pub const MAX_SLASH_LEVEL: u32 = SLASH_LEVELS.len() as u32 + 1;
-/// Level 2: longer, taller swing. Level 3: double damage. Level 4: every swing also throws a wave.
+/// Slash level 2: longer, taller swing. Level 3: double damage. Level 4: every swing also throws a wave.
 const LONG_SLASH: (f32, f32) = (1.35, 1.25);
-/// Every this many kills she gets a shield that takes this many hits instead of her.
-pub const SHIELD_EVERY: u32 = 15;
-pub const SHIELD_HITS: i32 = 2;
 /// Each swing costs this much: about five in a row from full.
 const ATTACK_COST: f32 = 18.;
 /// Stamina per second, starting shortly after the last swing.
 const STAMINA_REGEN: f32 = 45.;
 const STAMINA_DELAY: f32 = 0.35;
+/// Dash power-up: a quick burst along the held direction.
+const DASH_SPEED: f32 = 300.;
+const DASH_TIME: f32 = 0.16;
+/// Vortex power-up: a spin that hits everything within this radius.
+const VORTEX_TIME: f32 = 0.4;
+const VORTEX_RADIUS: f32 = 30.;
+const VORTEX_COOLDOWN: f32 = 1.;
 
 #[derive(Clone, Copy, PartialEq)]
 enum State {
@@ -37,6 +40,7 @@ enum State {
     Walk,
     Flourish,
     Attack(usize),
+    Vortex,
 }
 
 impl State {
@@ -46,6 +50,7 @@ impl State {
             State::Walk => "walk",
             State::Flourish => "flourish",
             State::Attack(i) => COMBO[i].0,
+            State::Vortex => "attack3",
         }
     }
 }
@@ -54,6 +59,8 @@ struct Input {
     dir: Vec2,
     sprint: bool,
     attack: bool,
+    dash: bool,
+    vortex: bool,
 }
 
 impl Input {
@@ -66,6 +73,8 @@ impl Input {
             ),
             sprint: is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift),
             attack: [KeyCode::J, KeyCode::Space].iter().any(|k| is_key_pressed(*k)),
+            dash: is_key_pressed(KeyCode::E),
+            vortex: is_key_pressed(KeyCode::Q),
         }
     }
 }
@@ -95,18 +104,19 @@ pub struct Player {
     stamina_delay: f32,
     /// Counts down after trying to attack without enough stamina (the bar flashes).
     pub out_of_stamina: f32,
-    pub slash_level: u32,
     /// A slash wave to launch this frame (its direction), at slash level 4.
     wave: Option<Vec2>,
     /// Hits the shield can still take.
     pub shield: i32,
     /// Counts down after the shield took a hit (for the blue flash).
     pub shield_flash: f32,
-}
-
-/// Slash level reached after this many kills.
-pub fn slash_level_for(kills: u32) -> u32 {
-    1 + SLASH_LEVELS.iter().filter(|&&n| kills >= n).count() as u32
+    /// Power-ups picked at the end of each wave.
+    pub upgrades: Upgrades,
+    /// Time left in the current dash, and its direction.
+    dashing: f32,
+    dash_dir: Vec2,
+    pub dash_cooldown: f32,
+    vortex_cooldown: f32,
 }
 
 impl Player {
@@ -130,11 +140,36 @@ impl Player {
             stamina: MAX_STAMINA,
             stamina_delay: 0.,
             out_of_stamina: 0.,
-            slash_level: 1,
             wave: None,
             shield: 0,
             shield_flash: 0.,
+            upgrades: Upgrades::default(),
+            dashing: 0.,
+            dash_dir: vec2(1., 0.),
+            dash_cooldown: 0.,
+            vortex_cooldown: 0.,
         }
+    }
+
+    /// 1 to 4, raised by the slash power-up.
+    pub fn slash_level(&self) -> u32 {
+        1 + self.upgrades.slash
+    }
+
+    /// Recharges the shield, at the start of each wave.
+    pub fn restore_shield(&mut self) {
+        self.shield = self.upgrades.shield_hits();
+    }
+
+    pub fn max_stamina(&self) -> f32 {
+        MAX_STAMINA + STAMINA_BONUS * self.upgrades.stamina as f32
+    }
+
+    /// Life steal: each of `blows` that landed may heal 1 HP. True if she healed.
+    pub fn leech(&mut self, blows: u32) -> bool {
+        let chance = LIFE_STEAL * self.upgrades.life_steal as f32;
+        let healed = (0..blows).filter(|_| gen_range(0., 1.) < chance).count() as i32;
+        healed > 0 && self.heal(healed)
     }
 
     /// Restores health; false if she's dead or already at full health.
@@ -155,10 +190,10 @@ impl Player {
         self.hp > 0
     }
 
-    /// Takes one hit from an enemy standing at `from`. Returns false if she
-    /// couldn't be hurt right now (still blinking from the last hit, or dead).
-    pub fn hurt(&mut self, from: Vec2) -> bool {
-        if !self.alive() || self.invulnerable > 0. {
+    /// Takes a hit worth `damage` from an enemy standing at `from`. Returns false if she
+    /// couldn't be hurt right now (still blinking from the last hit, dashing, or dead).
+    pub fn hurt(&mut self, from: Vec2, damage: i32) -> bool {
+        if !self.alive() || self.invulnerable > 0. || self.dashing > 0. {
             return false;
         }
         let away = (self.pos - from).normalize_or_zero();
@@ -170,7 +205,7 @@ impl Player {
             self.shield_flash = 0.3;
             self.knockback = away * KNOCKBACK * 0.5;
         } else {
-            self.hp -= 1;
+            self.hp -= damage;
             self.knockback = away * KNOCKBACK;
         }
         true
@@ -206,7 +241,7 @@ impl Player {
         self.stamina -= ATTACK_COST;
         self.stamina_delay = STAMINA_DELAY;
         self.start_attack(combo);
-        if self.slash_level >= 4 {
+        if self.slash_level() >= 4 {
             self.wave = Some(self.swing_aim);
         }
         true
@@ -242,10 +277,51 @@ impl Player {
         self.since_attack += dt;
         self.out_of_stamina -= dt;
         self.shield_flash -= dt;
+        self.dash_cooldown -= dt;
+        self.vortex_cooldown -= dt;
         if self.stamina_delay > 0. {
             self.stamina_delay -= dt;
         } else {
-            self.stamina = (self.stamina + STAMINA_REGEN * dt).min(MAX_STAMINA);
+            self.stamina = (self.stamina + STAMINA_REGEN * dt).min(self.max_stamina());
+        }
+
+        if self.dashing > 0. {
+            self.dashing -= dt;
+            self.slide(self.dash_dir * DASH_SPEED * dt, level);
+            return;
+        }
+        // Dash and vortex cut through whatever she was doing.
+        if input.dash && self.upgrades.dash > 0 && self.dash_cooldown <= 0. {
+            self.dash_dir = if input.dir != Vec2::ZERO { input.dir.normalize() } else { self.aim };
+            if self.dash_dir.x.abs() > 0.1 {
+                self.facing = self.dash_dir.x.signum();
+            }
+            self.dashing = DASH_TIME;
+            self.dash_cooldown = self.upgrades.dash_cooldown();
+            self.knockback = Vec2::ZERO;
+            self.set_state(State::Walk);
+            return;
+        }
+        if input.vortex && self.upgrades.vortex > 0 && self.state != State::Vortex && self.vortex_cooldown <= 0. {
+            let cost = self.upgrades.vortex_cost();
+            if self.stamina >= cost {
+                self.stamina -= cost;
+                self.stamina_delay = STAMINA_DELAY;
+                self.swing_id += 1;
+                self.vortex_cooldown = VORTEX_COOLDOWN;
+                self.set_state(State::Vortex);
+                return;
+            }
+            self.out_of_stamina = 0.4;
+        }
+        if self.state == State::Vortex {
+            // Spin: face left and right in turn.
+            self.facing = if (self.state_time * 10.) as i32 % 2 == 0 { 1. } else { -1. };
+            if self.state_time >= VORTEX_TIME {
+                self.since_attack = f32::MAX;
+                self.set_state(State::Idle);
+            }
+            return;
         }
 
         if let State::Attack(combo) = self.state {
@@ -299,12 +375,23 @@ impl Player {
 
     /// The sword hurts only during the middle frames of each attack.
     pub fn swing(&self, sheet: &SpriteSheet) -> Option<Swing> {
-        let State::Attack(combo) = self.state else { return None };
         if !self.alive() {
             return None;
         }
+        if self.state == State::Vortex {
+            let center = self.pos - vec2(0., 9.);
+            let r = VORTEX_RADIUS;
+            return Some(Swing {
+                hitbox: Rect::new(center.x - r, center.y - r, r * 2., r * 2.),
+                id: self.swing_id,
+                push: self.pos,
+                damage: self.upgrades.vortex_damage(),
+                radial: true,
+            });
+        }
+        let State::Attack(combo) = self.state else { return None };
         let (name, mut reach, mut height) = COMBO[combo];
-        if self.slash_level >= 2 {
+        if self.slash_level() >= 2 {
             reach *= LONG_SLASH.0;
             height *= LONG_SLASH.1;
         }
@@ -324,8 +411,8 @@ impl Player {
             (reach * 0.85, reach * 0.85)
         };
         let center = self.pos - vec2(0., 9.) + aim * reach * 0.55;
-        let damage = if self.slash_level >= 3 { 2 } else { 1 };
-        Some(Swing { hitbox: Rect::new(center.x - w / 2., center.y - h / 2., w, h), id: self.swing_id, push: aim, damage })
+        let damage = if self.slash_level() >= 3 { 2 } else { 1 };
+        Some(Swing { hitbox: Rect::new(center.x - w / 2., center.y - h / 2., w, h), id: self.swing_id, push: aim, damage, radial: false })
     }
 
     pub fn draw(&self, assets: &Assets) {
@@ -345,6 +432,8 @@ impl Player {
         let hop = if self.state == State::Walk && frame % 2 == 1 { 1. } else { 0. };
         let tint = if !self.alive() {
             Color::new(0.45, 0.45, 0.5, 1.)
+        } else if self.dashing > 0. {
+            Color::new(0.85, 0.95, 1., 0.6)
         } else if self.shield_flash > 0.15 {
             Color::new(0.6, 0.85, 1., 1.)
         } else if self.invulnerable > INVULNERABLE - 0.15 {
@@ -360,7 +449,7 @@ impl Player {
 
         // Shield bubble: fainter and thinner with one hit left, pulsing gently.
         if self.shield > 0 && self.alive() {
-            let strength = self.shield as f32 / SHIELD_HITS as f32;
+            let strength = self.shield as f32 / self.upgrades.shield_hits() as f32;
             let pulse = 0.85 + 0.15 * (get_time() as f32 * 5.).sin();
             let center = self.pos - vec2(0., 11.);
             draw_ellipse(center.x, center.y, 14., 16., 0., Color::new(0.5, 0.8, 1., 0.12 * strength * pulse));
@@ -369,8 +458,18 @@ impl Player {
 
         // A glowing arc shows where the swing hits (the sprite only swings sideways):
         // white, blue from slash level 2, golden from level 3.
+        if self.state == State::Vortex {
+            // Two golden arcs chasing each other around her.
+            let center = self.pos - vec2(0., 9.);
+            let turn = self.state_time / VORTEX_TIME * 720.;
+            let fade = 1. - self.state_time / VORTEX_TIME * 0.5;
+            for half in [0., 180.] {
+                draw_arc(center.x, center.y, 16, VORTEX_RADIUS * 0.9, turn + half, 3., 150., Color::new(1., 0.85, 0.45, 0.6 * fade));
+            }
+            return;
+        }
         if let Some(swing) = self.swing(sheet) {
-            let color = match self.slash_level {
+            let color = match self.slash_level() {
                 1 => Color::new(1., 1., 1., 0.45),
                 2 => Color::new(0.75, 0.9, 1., 0.5),
                 _ => Color::new(1., 0.85, 0.45, 0.55),

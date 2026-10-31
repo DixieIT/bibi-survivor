@@ -3,7 +3,9 @@
 Usage: python tools/make_skeleton.py [--crisp]
 Row 0: walk (4 frames), row 1: collapse into a bone pile (3 frames),
 row 2: archer walk (4 frames), row 3: archer aiming, archer releasing, flying arrow,
-and the heart they sometimes drop.
+and the heart they sometimes drop. Row 4: tank walk (helmeted), row 5: mage walk (book
+in hand), row 6: mage casting from the open book. Row 7: shaman walk (hooded), row 8:
+shaman calling fire from the sky, arm raised (2 frames).
 Faces right.
 By default the art is muted, softened and grained to match the AI-generated map;
 --crisp keeps the clean hand-drawn pixels.
@@ -35,6 +37,14 @@ PALETTE.update({
     'f': (200, 60, 60, 255),    # fletching
     'H': (220, 50, 64, 255),    # heart
     'P': (255, 170, 176, 255),  # heart shine
+    'M': (150, 156, 170, 255),  # helmet steel
+    'm': (98, 102, 118, 255),   # helmet rim
+    'L': (215, 220, 230, 255),  # helmet shine
+    'B': (112, 64, 150, 255),   # book cover
+    'p': (238, 228, 196, 255),  # book pages
+    'G': (255, 205, 100, 255),  # spell glow
+    'C': (176, 54, 44, 255),    # shaman hood
+    'c': (112, 32, 30, 255),    # hood shade
 } if CRISP else {
     'b': (156, 104, 60, 255),
     's': (190, 182, 166, 255),
@@ -43,6 +53,14 @@ PALETTE.update({
     'f': (170, 64, 60, 255),
     'H': (205, 52, 62, 255),
     'P': (240, 160, 164, 255),
+    'M': (136, 140, 150, 255),
+    'm': (92, 94, 106, 255),
+    'L': (190, 194, 200, 255),
+    'B': (106, 66, 136, 255),
+    'p': (214, 204, 176, 255),
+    'G': (236, 190, 100, 255),
+    'C': (160, 58, 48, 255),
+    'c': (104, 38, 34, 255),
 })
 FW, FH = 16, 20
 
@@ -122,6 +140,51 @@ HEART = [
     "......KHK.......",
     ".......K........",
 ]
+# Tank helmet: a steel dome over the skull, its rim low over the eyes.
+HELMET = [
+    "...KKKKKKKK.....",
+    "..KMMMLLLMMK....",
+    ".KMMMMMLLMMMK...",
+    ".KMMMMMMMMMMK...",
+    "KmmmmmmmmmmmmmK.",
+]
+# Mage's closed book with a gold emblem, held in the hand of the short arm.
+BOOK = [
+    "..........KKKKKK",
+    "..........KBBBpK",
+    "..........KBGBpK",
+    "..........KBBBpK",
+    "..........KBBBpK",
+    "..........KKKKKK",
+]
+# Book held up open while casting.
+OPEN_BOOK = [
+    ".......KKKK.KKKK",
+    ".......KpppKpppK",
+    ".......KpppKpppK",
+    ".......KBBBBBBBK",
+    "........KKKKKKK.",
+]
+# Shaman hood: covers the back of the skull, leaving the face out.
+HOOD = [
+    "...KKKKKKKK.....",
+    "..KCCCCCCCCK....",
+    ".KCCCCCCCCCCK...",
+    "KCCCCCCKKKKKK...",
+    "KCCCCCK.........",
+    "KCCCCK..........",
+    "KCCCCK..........",
+    "KcCCK...........",
+    ".KcK............",
+]
+# Torso without the reaching arm, for the raised-arm pose.
+CALL_TORSO = [
+    "......KWK.......",
+    ".....KWWWK......",
+    "....KWKWKWK.....",
+    ".....KWKWK......",
+    "......KgK.......",
+]
 BONES = [
     ".KWWK.......KWWK",
     ".KKKK..KWK..KKKK",
@@ -164,7 +227,7 @@ def archer(img, ox, oy, legs, dip, aiming):
         put(img, ox + 8, oy + dip + 14, 'f')
 
 
-sheet = Image.new('RGBA', (FW * 4, FH * 4), (0, 0, 0, 0))
+sheet = Image.new('RGBA', (FW * 4, FH * 9), (0, 0, 0, 0))
 # Walk: legs apart / together / lifted / together, dipping on the stride frames.
 for i, legs in enumerate(['apart', 'together', 'lifted', 'together']):
     dip = 0 if legs == 'together' else 1
@@ -193,6 +256,39 @@ put(sheet, ax + 3, ay + 11, 'f')
 put(sheet, ax + 4, ay + 9, 'f')
 put(sheet, ax + 4, ay + 11, 'f')
 paint(sheet, HEART, FW * 3, FH * 3 + FH - len(HEART))
+# Tank and mage walks: the plain walk with a helmet, the archer's short arm with a book.
+for i, legs in enumerate(['apart', 'together', 'lifted', 'together']):
+    dip = 0 if legs == 'together' else 1
+    paint(sheet, SKULL + TORSO, FW * i, FH * 4 + dip)
+    paint(sheet, HELMET, FW * i, FH * 4 + dip)
+    paint(sheet, LEGS[legs], FW * i, FH * 4 + 16)
+    paint(sheet, SKULL + ARCHER_TORSO, FW * i, FH * 5 + dip)
+    paint(sheet, BOOK, FW * i, FH * 5 + dip + 10)
+    paint(sheet, LEGS[legs], FW * i, FH * 5 + 16)
+# Casting: book raised and open, sparks rising from the pages.
+paint(sheet, SKULL + ARCHER_TORSO, 0, FH * 6)
+paint(sheet, OPEN_BOOK, 0, FH * 6 + 9)
+paint(sheet, LEGS['apart'], 0, FH * 6 + 16)
+for x, y in [(12, 8), (13, 8), (13, 7), (14, 7), (14, 6), (15, 5), (15, 6), (11, 8)]:
+    put(sheet, x, FH * 6 + y, 'G')
+# Shaman walk: the plain walk under a hood.
+for i, legs in enumerate(['apart', 'together', 'lifted', 'together']):
+    dip = 0 if legs == 'together' else 1
+    paint(sheet, SKULL + TORSO, FW * i, FH * 7 + dip)
+    paint(sheet, HOOD, FW * i, FH * 7 + dip)
+    paint(sheet, LEGS[legs], FW * i, FH * 7 + 16)
+# Calling: arm thrust up in front of the face, hand glowing; the second frame shakes it.
+for i, (hx, hy) in enumerate([(14, 2), (13, 1)]):
+    ox, oy = FW * i, FH * 8
+    paint(sheet, SKULL + CALL_TORSO, ox, oy)
+    paint(sheet, HOOD, ox, oy)
+    paint(sheet, LEGS['apart'], ox, oy + 16)
+    line(sheet, ox + 8, oy + 12, ox + hx - 1, oy + hy, 'K')
+    line(sheet, ox + 10, oy + 12, ox + hx + 1, oy + hy, 'K')
+    line(sheet, ox + 9, oy + 12, ox + hx, oy + hy, 'W')
+    for gx, gy in [(0, -1), (-1, -1), (1, -1), (0, -2), (-1, 0), (1, 0)][:4 + 2 * i]:
+        if 0 <= hy + gy and 0 <= hx + gx < FW:
+            put(sheet, ox + hx + gx, oy + hy + gy, 'G')
 
 
 def grunge(cell, seed):

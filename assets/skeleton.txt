@@ -14,3 +14,10 @@ archer_shoot  1   3   1        1     loop
 arrow         2   3   1        1     loop
 # Heart dropped by defeated skeletons.
 heart         3   3   1        1     loop
+# Tank (helmeted) and mage (with a book), tinted in game.
+tank_walk     0   4   4        6     loop
+mage_walk     0   5   4        6     loop
+mage_cast     0   6   1        1     loop
+# Shaman: hooded walk, and calling fire with an arm to the sky.
+shaman_walk   0   7   4        6     loop
+shaman_call   0   8   2        6     loop

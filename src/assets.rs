@@ -8,6 +8,7 @@ const DEFAULT_PLAYER: &[u8] = include_bytes!("../assets/player.png");
 const DEFAULT_SKELETON_LAYOUT: &str = include_str!("../assets/skeleton.txt");
 const DEFAULT_SKELETON: &[u8] = include_bytes!("../assets/skeleton.png");
 const DEFAULT_SHADOW: &[u8] = include_bytes!("../assets/shadow.png");
+const DEFAULT_MENU: &[u8] = include_bytes!("../assets/menu.png");
 
 /// A map built into the exe; a folder assets/maps/<id>/ overrides it file by file.
 struct BuiltinMap {
@@ -32,7 +33,7 @@ macro_rules! builtin_map {
     };
 }
 
-const BUILTIN_MAPS: [BuiltinMap; 2] = [builtin_map!("village"), builtin_map!("town")];
+const BUILTIN_MAPS: [BuiltinMap; 3] = [builtin_map!("ruins"), builtin_map!("village"), builtin_map!("town")];
 
 /// A run of frames in a sprite sheet.
 #[derive(Clone, Copy)]
@@ -120,6 +121,8 @@ pub struct Assets {
     pub player: SpriteSheet,
     pub skeleton: SpriteSheet,
     pub shadow: Texture2D,
+    /// Menu backdrop.
+    pub menu: Texture2D,
 }
 
 pub struct MapAssets {
@@ -142,6 +145,7 @@ impl Assets {
             player: sheet("player", DEFAULT_PLAYER_LAYOUT, DEFAULT_PLAYER),
             skeleton: sheet("skeleton", DEFAULT_SKELETON_LAYOUT, DEFAULT_SKELETON),
             shadow: pixelated(&image("shadow.png", DEFAULT_SHADOW)),
+            menu: Texture2D::from_image(&image("menu.png", DEFAULT_MENU)),
         }
     }
 }

@@ -1,0 +1,19 @@
+# Map settings, written by tools/make_ruins_map.py.
+# night/fog/ash: 0..1. light <x> <y> <radius> [fire|torch|glow]: lights in the dark.
+title Ruined Hamlet
+spawn 502 430
+night 0.38
+fog 0.5
+ash 0.6
+light 590 440 120 fire
+light 560 381 78 torch
+light 440 451 78 torch
+light 690 165 64 glow
+light 669 135 64 glow
+light 824 191 64 glow
+light 659 704 64 glow
+light 742 698 64 glow
+light 822 698 64 glow
+light 838 698 64 glow
+light 806 649 64 glow
+light 831 635 78 torch

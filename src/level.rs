@@ -5,13 +5,18 @@ use std::collections::VecDeque;
 /// Collision grid resolution, in map pixels.
 const CELL: f32 = 4.;
 const UNREACHABLE: u16 = u16::MAX;
+/// Within this many steps of the player, paths may squeeze through cells next to walls,
+/// so she can't hide from the field by hugging a fence.
+const SQUEEZE: u16 = 4;
 
 /// A sword swing: hitbox, swing id (each swing hits a target once), push direction, damage.
+/// A radial swing (the vortex) pushes away from `push`, which is then its center.
 pub struct Swing {
     pub hitbox: Rect,
     pub id: u32,
     pub push: Vec2,
     pub damage: i32,
+    pub radial: bool,
 }
 
 /// A cut-out of the map (e.g. a tree crown) that covers characters whose feet are
@@ -162,7 +167,7 @@ impl Level {
         let mut queue = VecDeque::from([start]);
         while let Some((cx, cy)) = queue.pop_front() {
             let d = self.flow[self.index(cx, cy).unwrap()];
-            let next: Vec<_> = self.neighbours(cx, cy).collect();
+            let next: Vec<_> = self.neighbours(cx, cy, d < SQUEEZE).collect();
             for (nx, ny) in next {
                 let n = self.index(nx, ny).unwrap();
                 if self.flow[n] == UNREACHABLE {
@@ -173,14 +178,13 @@ impl Level {
         }
     }
 
-    /// Roomy neighbours, including diagonals that don't cut a corner.
-    fn neighbours(&self, cx: i32, cy: i32) -> impl Iterator<Item = (i32, i32)> + '_ {
+    /// Roomy neighbours (or just free ones, if `squeeze`), including diagonals that
+    /// don't cut a corner.
+    fn neighbours(&self, cx: i32, cy: i32, squeeze: bool) -> impl Iterator<Item = (i32, i32)> + '_ {
+        let open = move |x, y| if squeeze { !self.solid_cell(x, y) } else { self.roomy_cell(x, y) };
         [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
             .into_iter()
-            .filter(move |&(dx, dy)| {
-                self.roomy_cell(cx + dx, cy + dy)
-                    && (dx == 0 || dy == 0 || (self.roomy_cell(cx + dx, cy) && self.roomy_cell(cx, cy + dy)))
-            })
+            .filter(move |&(dx, dy)| open(cx + dx, cy + dy) && (dx == 0 || dy == 0 || (open(cx + dx, cy) && open(cx, cy + dy))))
             .map(move |(dx, dy)| (cx + dx, cy + dy))
     }
 
@@ -188,8 +192,9 @@ impl Level {
     pub fn next_step(&self, from: Vec2) -> Option<Vec2> {
         let (cx, cy) = self.cell_of(from);
         let here = self.index(cx, cy).map_or(UNREACHABLE, |i| self.flow[i]);
+        // Any free cell counts, so one pushed up against a wall can still get going.
         let best = self
-            .neighbours(cx, cy)
+            .neighbours(cx, cy, true)
             .min_by_key(|&(nx, ny)| self.flow[self.index(nx, ny).unwrap()])?;
         let d = self.flow[self.index(best.0, best.1).unwrap()];
         (d != UNREACHABLE && d <= here).then(|| (vec2(best.0 as f32, best.1 as f32) + 0.5) * CELL)
